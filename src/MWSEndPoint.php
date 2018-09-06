@@ -1,9 +1,11 @@
 <?php
+
 namespace MCS;
 
 use Exception;
 
-class MWSEndPoint{
+class MWSEndPoint
+{
 
     public static $endpoints = [
         'ListRecommendations' => [
@@ -54,17 +56,26 @@ class MWSEndPoint{
             'path' => '/',
             'date' => '2009-01-01'
         ],
+        'GetFeedSubmissionList' => [
+            'method' => 'POST',
+            'action' => 'GetFeedSubmissionList',
+            'path' => '/',
+            'date' => '2009-01-01',
+            'responseElement' => 'FeedSubmissionInfo'
+        ],
         'GetReportList' => [
             'method' => 'POST',
             'action' => 'GetReportList',
             'path' => '/',
-            'date' => '2009-01-01'
+            'date' => '2009-01-01',
+            'responseElement' => 'ReportInfo'
         ],
         'GetReportRequestList' => [
             'method' => 'POST',
             'action' => 'GetReportRequestList',
             'path' => '/',
-            'date' => '2009-01-01'
+            'date' => '2009-01-01',
+            'responseElement' => 'ReportRequestInfo'
         ],
         'GetReport' => [
             'method' => 'POST',
@@ -88,13 +99,8 @@ class MWSEndPoint{
             'method' => 'POST',
             'action' => 'ListOrders',
             'path' => '/Orders/2013-09-01',
-            'date' => '2013-09-01'
-        ],
-        'ListOrdersByNextToken' => [
-            'method' => 'POST',
-            'action' => 'ListOrdersByNextToken',
-            'path' => '/Orders/2013-09-01',
-            'date' => '2013-09-01'
+            'date' => '2013-09-01',
+            'responseElement' => 'Orders'
         ],
         'ListOrderItems' => [
             'method' => 'POST',
@@ -150,8 +156,16 @@ class MWSEndPoint{
 
     public static function get($key)
     {
+        if ($byNextTokenPos = strpos($key, 'ByNextToken')) {
+            $key = substr($key, 0, $byNextTokenPos);
+        }
+
         if (isset(self::$endpoints[$key])) {
-            return self::$endpoints[$key];
+            $ret = self::$endpoints[$key];
+            if ($byNextTokenPos) {
+                $ret['action'] .= 'ByNextToken';
+            }
+            return $ret;
         } else {
             throw new Exception('Call to undefined endpoint ' . $key);
         }

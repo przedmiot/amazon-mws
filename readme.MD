@@ -116,25 +116,25 @@ All methods starting with an uppercase character are also documented in the [Ama
 
 ```php
 // Returns the current competitive price of a product, based on ASIN.
-$client->GetCompetitivePricingForASIN($asin_array = []);
+$client->GetCompetitivePricingForASIN($idsArr = []);
 
 // Returns the feed processing report and the Content-MD5 header.
 $client->GetFeedSubmissionResult($FeedSubmissionId);
 
 // Returns pricing information for the lowest-price active offer listings for up to 20 products, based on ASIN.
-$client->GetLowestOfferListingsForASIN($asin_array = [], $ItemCondition = null);
+$client->GetLowestOfferListingsForASIN($idsArr = [], $ItemCondition = null);
 
 // Returns lowest priced offers for a single product, based on ASIN.
 $client->GetLowestPricedOffersForASIN($asin, $ItemCondition = 'New');
 
 // Returns a list of products and their attributes, based on a list of ASIN, GCID, SellerSKU, UPC, EAN, ISBN, and JAN values.
-$client->GetMatchingProductForId($asin_array, $type = 'ASIN');
+$client->GetMatchingProductForId($idsArr, $type = 'ASIN');
 
 // Returns a list of products and their attributes, based on an open text based query
 $client->ListMatchingProducts($query, $query_context_id = null);
 
 // Returns pricing information for your own offer listings, based on ASIN.
-$client->GetMyPriceForASIN($asin_array = [], $ItemCondition = null);
+$client->GetMyPriceForASIN($idsArr = [], $ItemCondition = null);
 
 // Returns pricing information for your own offer listings, based on SKU.
 $client->GetMyPriceForSKU($sku_array = [], $ItemCondition = null);

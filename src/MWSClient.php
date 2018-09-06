@@ -46,8 +46,7 @@ class MWSClient
     const MARKETPLACE_MEXICO = 'A1AM78C64UM0Y8';
 
 
-
-    protected $MarketplaceIds = [
+    public static $MarketplaceIds = [
         self::MARKETPLACE_CANADA => 'mws.amazonservices.ca',
         self::MARKETPLACE_US => 'mws.amazonservices.com',
         self::MARKETPLACE_MEXICO => 'mws.amazonservices.com.mx',
@@ -63,8 +62,28 @@ class MWSClient
         self::MARKETPLACE_BRAZIL => 'mws.amazonservices.com'
     ];
 
+
+    public static $regions = [
+        'North America' => [self::MARKETPLACE_CANADA, self::MARKETPLACE_US, self::MARKETPLACE_MEXICO],
+        'Brazil' => [self::MARKETPLACE_BRAZIL],
+        'Europe' => [
+            self::MARKETPLACE_GERMANY,
+            self::MARKETPLACE_SPAIN,
+            self::MARKETPLACE_FRANCE,
+            self::MARKETPLACE_ITALY,
+            self::MARKETPLACE_UK
+        ],
+        'India' => [self::MARKETPLACE_INDIA],
+        'China' => [self::MARKETPLACE_CHINA],
+        'Japan' => [self::MARKETPLACE_JAPAN],
+        'Australia' => [self::MARKETPLACE_AUSTRALIA]
+    ];
+
+
     protected $debugNextFeed = false;
     protected $client = null;
+    public $getNextAuto = false;
+    protected $commonResult = [];
 
     public function __construct(array $config, $skipRequiredCheck = false)
     {
@@ -90,12 +109,13 @@ class MWSClient
             }
         }
 
-        if (!isset($this->MarketplaceIds[$this->config['Marketplace_Id']])) {
+
+        if (!isset(static::$MarketplaceIds[$this->config['Marketplace_Id']])) {
             throw new Exception('Invalid Marketplace Id');
         }
 
         $this->config['Application_Name'] = self::APPLICATION_NAME;
-        $this->config['Region_Host'] = $this->MarketplaceIds[$this->config['Marketplace_Id']];
+        $this->config['Region_Host'] = static::$MarketplaceIds[$this->config['Marketplace_Id']];
         $this->config['Region_Url'] = 'https://' . $this->config['Region_Host'];
 
     }
@@ -106,7 +126,15 @@ class MWSClient
     public function debugNextFeed()
     {
         $this->debugNextFeed = true;
+        return $this;
     }
+
+    public function getNextAuto($enable = true)
+    {
+        $this->getNextAuto = $enable;
+        return $this;
+    }
+
 
     /**
      * A method to quickly check if the supplied credentials are valid
@@ -430,7 +458,7 @@ class MWSClient
 
         if ($allMarketplaces == true) {
             $counter = 1;
-            foreach ($this->MarketplaceIds as $key => $value) {
+            foreach (static::$MarketplaceIds as $key => $value) {
                 $query['MarketplaceId.Id.' . $counter] = $key;
                 $counter = $counter + 1;
             }
@@ -578,18 +606,30 @@ class MWSClient
         }
     }
 
+    public function GetMatchingProductForIdNoLimits(array $idsArr, $type = 'ASIN')
+    {
+        $answer = $idsArrTmp = [];
+        while ($idsArr) {
+            $idsArrTmp[] = array_shift($idsArr);
+            if (count($idsArrTmp) === 5 || !count($idsArr)) {
+                $answer = array_merge_recursive($answer, $this->GetMatchingProductForId($idsArrTmp, $type));
+                $idsArrTmp = [];
+            }
+        }
+        return $answer;
+    }
 
     /**
      * Returns a list of products and their attributes, based on a list of ASIN, GCID, SellerSKU, UPC, EAN, ISBN, and JAN values.
-     * @param array $asin_array A list of id's
+     * @param array $idsArr A list of id's
      * @param string [$type = 'ASIN']  the identifier name
      * @return array
      */
-    public function GetMatchingProductForId(array $asin_array, $type = 'ASIN')
+    public function GetMatchingProductForId(array $idsArr, $type = 'ASIN')
     {
-        $asin_array = array_unique($asin_array);
+        $idsArr = array_unique($idsArr);
 
-        if (count($asin_array) > 5) {
+        if (count($idsArr) > 5) {
             throw new Exception('Maximum number of id\'s = 5');
         }
 
@@ -599,7 +639,7 @@ class MWSClient
             'IdType' => $type
         ];
 
-        foreach ($asin_array as $asin) {
+        foreach ($idsArr as $asin) {
             $array['IdList.Id.' . $counter] = $asin;
             $counter++;
         }
@@ -644,7 +684,7 @@ class MWSClient
         if (isset($response['GetMatchingProductForIdResult']) && is_array($response['GetMatchingProductForIdResult'])) {
             foreach ($response['GetMatchingProductForIdResult'] as $result) {
 
-                //print_r($product);exit;
+                //print_r($result);exit;
 
                 $asin = $result['@attributes']['Id'];
                 if ($result['@attributes']['status'] != 'Success') {
@@ -710,6 +750,7 @@ class MWSClient
         ];
 
     }
+
 
     /**
      * Returns a list of products and their attributes, ordered by relevancy, based on a search query that you specify.
@@ -954,12 +995,48 @@ class MWSClient
         return $this->SubmitFeed('_POST_PRODUCT_PRICING_DATA_', $feed);
     }
 
+    public function mapBarcodesToASIN(array $barCodesArr)
+    {
+        $byType = [];
+        foreach ($barCodesArr as $barcode) {
+            if (!$type = static::recognizeBarcodeType($barcode)) {
+                throw new \Exception('Unknow barcode type!');
+            }
+
+            $byType[$type][] = $barcode;
+        }
+
+        $map = [];
+        foreach ($byType as $type => $barcodesArr) {
+            $searchResult = $this->GetMatchingProductForIdNoLimits($barcodesArr, $type);
+            foreach ($searchResult['found'] as $barcode => $productsArr) {
+                $map[$barcode] = $productsArr[0]['ASIN'];
+            }
+        }
+        return $map;
+    }
+
+    public static function recognizeBarcodeType($code)
+    {
+        $codeLength = strlen($code);
+        if (in_array($codeLength, [6, 12])) {
+            return 'UPC';
+        }
+
+        if (in_array($codeLength, [8, 13, 14, 18])) {
+            return 'EAN';
+        }
+
+        return false;
+    }
+
+
     /**
      * Post to create or update a product (_POST_FLAT_FILE_LISTINGS_DATA_)
      * @param  object $MWSProduct or array of MWSProduct objects
      * @return array
      */
-    public function postProduct($MWSProduct)
+    public function postProduct($MWSProduct, array $feedOptions = [])
     {
 
         if (!is_array($MWSProduct)) {
@@ -1010,7 +1087,7 @@ class MWSClient
             );
         }
 
-        return $this->SubmitFeed('_POST_FLAT_FILE_LISTINGS_DATA_', $csv);
+        return $this->SubmitFeed('_POST_FLAT_FILE_LISTINGS_DATA_', $csv, false, $feedOptions);
 
     }
 
@@ -1031,6 +1108,45 @@ class MWSClient
             return $result;
         }
     }
+
+
+    public function GetFeedSubmissionList(array $ids = [])
+    {
+        if (count($ids) > 100) {
+            throw new \Exception('Too much feeds at once. Maximum allowed = 100.');
+        }
+
+        $params = [];
+        foreach (array_values($ids) as $i => $id) {
+            $params['FeedSubmissionIdList.Id.' . ($i + 1)] = $id;
+        }
+        $params['MaxCount'] = 100;
+
+        return $this->request('GetFeedSubmissionList', $params);
+    }
+
+    public function getFeedsStatuses(array $ids)
+    {
+
+        $askAbout = $statusesArr = [];
+        while ($ids) {
+            $askAbout[] = array_shift($ids);
+            if (100 === count($askAbout) || !$ids) {
+                $result = $this->GetFeedSubmissionList($askAbout);
+                $askAbout = [];
+                if ($feedsInfo = @$result['GetFeedSubmissionListResult']['FeedSubmissionInfo']) {
+                    if (@$feedsInfo['FeedProcessingStatus']) {
+                        $feedsInfo = [$feedsInfo];
+                    }
+                    foreach ($feedsInfo as $feed) {
+                        $statusesArr[$feed['FeedSubmissionId']] = $feed['FeedProcessingStatus'];
+                    }
+                }
+            }
+        }
+        return $statusesArr;
+    }
+
 
     /**
      * Uploads a feed for processing by Amazon MWS.
@@ -1068,13 +1184,19 @@ class MWSClient
             'FeedType' => $FeedType,
             'PurgeAndReplace' => ($purgeAndReplace ? 'true' : 'false'),
             'Merchant' => $this->config['Seller_Id'],
-            'MarketplaceId.Id.1' => false,
             'SellerId' => false,
         ];
 
-        //if ($FeedType === '_POST_PRODUCT_PRICING_DATA_') {
-        $query['MarketplaceIdList.Id.1'] = $this->config['Marketplace_Id'];
-        //}
+        $marketplaces[] = $this->config['Marketplace_Id'];
+        if (isset($options['marketplaces'])) {
+            $marketplaces = $options['marketplaces'];
+        }
+
+        if ($marketplaces) {
+            foreach (array_values($marketplaces) as $i => $marketplaceId) {
+                $query['MarketplaceIdList.Id.' . ($i+1)] = $marketplaceId;
+            }
+        }
 
         $response = $this->request(
             'SubmitFeed',
@@ -1243,26 +1365,26 @@ class MWSClient
         return $result;
     }
 
+
     /**
      * Request MWS
      */
-    private function request($endPoint, array $query = [], $body = null, $raw = false)
+    private function request($endPointName, array $query = [], $body = null, $raw = false)
     {
 
-        $endPoint = MWSEndPoint::get($endPoint);
+        $endPoint = MWSEndPoint::get($endPointName);
 
         $merge = [
             'Timestamp' => gmdate(self::DATE_FORMAT, time()),
             'AWSAccessKeyId' => $this->config['Access_Key_ID'],
             'Action' => $endPoint['action'],
-            //'MarketplaceId.Id.1' => $this->config['Marketplace_Id'],
             'SellerId' => $this->config['Seller_Id'],
             'SignatureMethod' => self::SIGNATURE_METHOD,
             'SignatureVersion' => self::SIGNATURE_VERSION,
             'Version' => $endPoint['date'],
         ];
 
-        $query = array_merge($merge, $query);
+        $query = array_merge($query, $merge);
 
         if (!isset($query['MarketplaceId.Id.1'])) {
             $query['MarketplaceId.Id.1'] = $this->config['Marketplace_Id'];
@@ -1305,6 +1427,9 @@ class MWSClient
 
             ksort($query);
 
+            if (isset($query['Signature'])) {
+                unset($query['Signature']);
+            }
             $query['Signature'] = base64_encode(
                 hash_hmac(
                     'sha256',
@@ -1340,7 +1465,23 @@ class MWSClient
                 return $body;
             } else {
                 if (strpos(strtolower($response->getHeader('Content-Type')[0]), 'xml') !== false) {
-                    return $this->xmlToArray($body);
+                    $result = $this->xmlToArray($body);
+                    if ($this->getNextAuto && 'true' === @$result[$endPointName . 'Result']['HasNext']) {
+                        $this->commonResult = array_merge($this->commonResult,
+                            ($this->isAssoc($result[$endPointName . 'Result'][$endPoint['responseElement']]) ? [$result[$endPointName . 'Result'][$endPoint['responseElement']]] :
+                                $result[$endPointName . 'Result'][$endPoint['responseElement']]));
+                        $query['NextToken'] = $result[$endPointName . 'Result']['NextToken'];
+                        if (!strpos($endPointName, 'ByNextToken')) {
+                            $endPointName .= 'ByNextToken';
+                        }
+                        return $this->request($endPointName, $query);
+                    }
+                    if ($this->commonResult && 'false' === $result[$endPointName . 'Result']['HasNext']) {
+                        $result['commonResult'] = $this->commonResult;
+                        $this->commonResult = [];
+                    }
+                    return $result;
+
                 } else {
                     return $body;
                 }
@@ -1359,6 +1500,11 @@ class MWSClient
             }
             throw new Exception($message);
         }
+    }
+
+    protected function isAssoc($arr)
+    {
+        return (bool)array_filter(array_keys($arr), 'is_string');
     }
 
     public function setClient(Client $client)

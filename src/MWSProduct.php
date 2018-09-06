@@ -1,7 +1,7 @@
 <?php 
 namespace MCS;
 
-use Exception;
+use MCS\Exception\MWSProductValidationException;
 
 class MWSProduct{
 
@@ -44,7 +44,11 @@ class MWSProduct{
             'condition_note' => $this->condition_note,
         ];
     }
-    
+
+    /**
+     * @return bool if everything is ok
+     * @throws MWSProductValidationException
+     */
     public function validate()
     {
         if (mb_strlen($this->sku) < 1 or strlen($this->sku) > 40) {
@@ -57,12 +61,12 @@ class MWSProduct{
         
         if (count($exploded_price) == 2) {
             if (mb_strlen($exploded_price[0]) > 18) { 
-                $this->validation_errors['price'] = 'Too high';        
+                $this->validation_errors['price'] = 'Too high';
             } else if (mb_strlen($exploded_price[1]) > 2) {
-                $this->validation_errors['price'] = 'Too many decimals';    
+                $this->validation_errors['price'] = 'Too many decimals';
             }
         } else {
-            $this->validation_errors['price'] = 'Looks wrong';        
+            $this->validation_errors['price'] = 'Looks wrong';
         }
         
         $this->quantity = (int) $this->quantity;
@@ -73,25 +77,25 @@ class MWSProduct{
         switch ($this->product_id_type) {
             case 'ASIN':
                 if ($product_id_length != 10) {
-                    $this->validation_errors['product_id'] = 'ASIN should be 10 characters long';                
+                    $this->validation_errors['product_id'] = 'ASIN should be 10 characters long';
                 }
                 break;
             case 'UPC':
                 if ($product_id_length != 12) {
-                    $this->validation_errors['product_id'] = 'UPC should be 12 characters long';                
+                    $this->validation_errors['product_id'] = 'UPC should be 12 characters long';
                 }
                 break;
             case 'EAN':
                 if ($product_id_length != 13) {
-                    $this->validation_errors['product_id'] = 'EAN should be 13 characters long';                
+                    $this->validation_errors['product_id'] = 'EAN should be 13 characters long';
                 }
                 break;
             default:
-               $this->validation_errors['product_id_type'] = 'Not one of: ASIN,UPC,EAN';        
+               $this->validation_errors['product_id_type'] = 'Not one of: ASIN,UPC,EAN';
         }
         
         if (!in_array($this->condition_type, $this->conditions)) {
-            $this->validation_errors['condition_type'] = 'Not one of: ' . implode($this->conditions, ',');                
+            $this->validation_errors['condition_type'] = 'Not one of: ' . implode($this->conditions, ',');
         }
         
         if ($this->condition_type != 'New') {
@@ -104,7 +108,7 @@ class MWSProduct{
         }
         
         if (count($this->validation_errors) > 0) {
-            return false;    
+            throw new MWSProductValidationException('Validation error', 0, $this->validation_errors);
         } else {
             return true;    
         }

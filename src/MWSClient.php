@@ -546,6 +546,7 @@ class MWSClient
         }
     }
 
+
     /**
      * Returns order items based on the AmazonOrderId that you specify.
      * @param string $AmazonOrderId
@@ -814,19 +815,46 @@ class MWSClient
      * @param array [$ReportTypeList = []]
      * @return array
      */
-    public function GetReportList($ReportTypeList = [])
+    public function GetReportList(array $options = [])
     {
-        $array = [];
-        $counter = 1;
-        if (count($ReportTypeList)) {
-            foreach ($ReportTypeList as $ReportType) {
-                $array['ReportTypeList.Type.' . $counter] = $ReportType;
-                $counter++;
+        return $this->reportList($options, 'Report');
+    }
+
+    public function GetReportRequestList(array $options = [])
+    {
+        return $this->reportList($options);
+    }
+
+    protected function reportList(array $options = null, $type = 'ReportRequest')
+    {
+        $query = ['MaxCount' => 100];
+
+        if (@$options['ReportTypeList']) {
+            foreach (array_values($options['ReportTypeList']) as $i => $ReportType) {
+                $query['ReportTypeList.Type.' . ($i + 1)] = $ReportType;
             }
         }
 
-        return $this->request('GetReportList', $array);
+        if (@$options['ReportRequestIdList']) {
+            if (count($options['ReportRequestIdList']) > 100) {
+                throw new \Exception('Asking about more than 100 reports at once is impossible at this moment...');
+            }
+
+            foreach (array_values($options['ReportRequestIdList']) as $i => $ReportRequestId) {
+                $query['ReportRequestIdList.Id.' . ($i + 1)] = $ReportRequestId;
+            }
+        }
+
+        $endpointName = 'Get' . $type . 'List';
+
+        $response = $this->request($endpointName, $query);
+        if (@$response[$endpointName . 'Result'][$type . 'Info']['ReportType']) {
+            $response[$endpointName . 'Result'][$type . 'Info'] = [$response[$endpointName . 'Result'][$type . 'Info']];
+        }
+
+        return @$response[$endpointName . 'Result'][$type . 'Info'] ?: [];
     }
+
 
     /**
      * Returns your active recommendations for a specific category or for all categories for a specific marketplace.
@@ -905,20 +933,29 @@ class MWSClient
             'Message' => []
         ];
 
-        foreach ($array as $sku => $quantity) {
-            $feed['Message'][] = [
+        foreach ($array as $sku => $sth) {
+            $arr = [
                 'MessageID' => rand(),
                 'OperationType' => 'Update',
                 'Inventory' => [
-                    'SKU' => $sku,
-                    'Quantity' => (int)$quantity
+                    'SKU' => $sku
                 ]
             ];
+
+            if (is_bool($sth)) {
+                $arr['Inventory']['Available'] = $sth ? 'true' : 'false';
+            } else {
+                $arr['Inventory']['Quantity'] = $sth;
+            }
+
+            $feed['Message'][] = $arr;
+
         }
 
         return $this->SubmitFeed('_POST_INVENTORY_AVAILABILITY_DATA_', $feed);
 
     }
+
 
     /**
      * Update a product's stock quantity
@@ -1194,7 +1231,7 @@ class MWSClient
 
         if ($marketplaces) {
             foreach (array_values($marketplaces) as $i => $marketplaceId) {
-                $query['MarketplaceIdList.Id.' . ($i+1)] = $marketplaceId;
+                $query['MarketplaceIdList.Id.' . ($i + 1)] = $marketplaceId;
             }
         }
 
@@ -1233,7 +1270,7 @@ class MWSClient
      * @param string $report (http://docs.developer.amazonservices.com/en_US/reports/Reports_ReportType.html)
      * @param DateTime [$StartDate = null]
      * @param EndDate [$EndDate = null]
-     * @return string ReportRequestId
+     * @return array Request report info
      */
     public function RequestReport($report, $StartDate = null, $EndDate = null)
     {
@@ -1264,7 +1301,7 @@ class MWSClient
         );
 
         if (isset($result['RequestReportResult']['ReportRequestInfo']['ReportRequestId'])) {
-            return $result['RequestReportResult']['ReportRequestInfo']['ReportRequestId'];
+            return $result['RequestReportResult']['ReportRequestInfo'];
         } else {
             throw new Exception('Error trying to request report');
         }
@@ -1277,33 +1314,21 @@ class MWSClient
      */
     public function GetReport($ReportId)
     {
-        $status = $this->GetReportRequestStatus($ReportId);
+        $result = $this->request('GetReport', [
+            'ReportId' => $ReportId
+        ]);
 
-        if ($status !== false && $status['ReportProcessingStatus'] === '_DONE_NO_DATA_') {
-            return [];
-        } else {
-            if ($status !== false && $status['ReportProcessingStatus'] === '_DONE_') {
-
-                $result = $this->request('GetReport', [
-                    'ReportId' => $status['GeneratedReportId']
-                ]);
-
-                if (is_string($result)) {
-                    $csv = Reader::createFromString($result);
-                    $csv->setDelimiter("\t");
-                    $headers = $csv->fetchOne();
-                    $result = [];
-                    foreach ($csv->setOffset(1)->fetchAll() as $row) {
-                        $result[] = array_combine($headers, $row);
-                    }
-                }
-
-                return $result;
-
-            } else {
-                return false;
+        if (is_string($result)) {
+            $csv = Reader::createFromString($result);
+            $csv->setDelimiter("\t");
+            $headers = $csv->fetchOne();
+            $result = [];
+            foreach ($csv->setOffset(1)->fetchAll() as $row) {
+                $result[] = array_combine($headers, $row);
             }
         }
+
+        return $result;
     }
 
     /**

@@ -21,6 +21,9 @@ class MWSClient
     const DATE_FORMAT = "Y-m-d\TH:i:s.\\0\\0\\0\\Z";
     const APPLICATION_NAME = 'MCS/MwsClient';
 
+    public $targetEncoding = 'UTF-8';
+    const ORIGIN_ENCODING = 'ISO-8859-1';
+
     public $config = [
         'Seller_Id' => null,
         'Marketplace_Id' => null,
@@ -83,7 +86,7 @@ class MWSClient
     protected $debugNextFeed = false;
     protected $client = null;
     public $getNextAuto = false;
-    protected $commonResult = [];
+    protected $nextStack = [];
 
     public function __construct(array $config, $skipRequiredCheck = false)
     {
@@ -129,12 +132,18 @@ class MWSClient
         return $this;
     }
 
-    public function getNextAuto($enable = true)
+    /**
+     * Can be used with API methods which have own "...ByNextToken" counterpart. Enables an automatic fetching of subsequent result pages.
+     * Modifies a form of a data returned by self::request() method. If flag is in use - it will return an array of resources rather than full api response.
+     *
+     * @param bool $enable
+     * @return $this
+     */
+    public function asAStackOfNextResources($enable = true)
     {
         $this->getNextAuto = $enable;
         return $this;
     }
-
 
     /**
      * A method to quickly check if the supplied credentials are valid
@@ -434,7 +443,7 @@ class MWSClient
      */
     public function ListOrders(
         DateTime $from,
-        $allMarketplaces = false,
+        $marketplacesList = null,
         $states = [
             'Unshipped',
             'PartiallyShipped'
@@ -456,11 +465,13 @@ class MWSClient
             $counter = $counter + 1;
         }
 
-        if ($allMarketplaces == true) {
+        if ($marketplacesList) {
+            if (!is_array($marketplacesList)) {
+                throw new Exception('$marketplacesList should be an array!');
+            }
             $counter = 1;
-            foreach (static::$MarketplaceIds as $key => $value) {
-                $query['MarketplaceId.Id.' . $counter] = $key;
-                $counter = $counter + 1;
+            foreach ($marketplacesList as $id) {
+                $query['MarketplaceId.Id.' . $counter++] = $id;
             }
         }
 
@@ -474,58 +485,11 @@ class MWSClient
             $query['FulfillmentChannel.Channel.1'] = $FulfillmentChannels;
         }
 
-        $response = $this->request('ListOrders', $query);
+        $oldNextAuto = $this->getNextAuto;
+        $response = $this->asAStackOfNextResources()->request('ListOrders', $query);
+        $this->getNextAuto = $oldNextAuto;
 
-        if (isset($response['ListOrdersResult']['Orders']['Order'])) {
-            if (isset($response['ListOrdersResult']['NextToken'])) {
-                $data['ListOrders'] = $response['ListOrdersResult']['Orders']['Order'];
-                $data['NextToken'] = $response['ListOrdersResult']['NextToken'];
-                return $data;
-            }
-
-            $response = $response['ListOrdersResult']['Orders']['Order'];
-
-            if (array_keys($response) !== range(0, count($response) - 1)) {
-                return [$response];
-            }
-
-            return $response;
-
-        } else {
-            return [];
-        }
-    }
-
-    /**
-     * Returns orders created or updated during a time frame that you specify.
-     * @param string $nextToken
-     * @return array
-     */
-    public function ListOrdersByNextToken($nextToken)
-    {
-        $query = [
-            'NextToken' => $nextToken,
-        ];
-
-        $response = $this->request(
-            'ListOrdersByNextToken',
-            $query
-        );
-        if (isset($response['ListOrdersByNextTokenResult']['Orders']['Order'])) {
-            if (isset($response['ListOrdersByNextTokenResult']['NextToken'])) {
-                $data['ListOrders'] = $response['ListOrdersByNextTokenResult']['Orders']['Order'];
-                $data['NextToken'] = $response['ListOrdersByNextTokenResult']['NextToken'];
-                return $data;
-            }
-            $response = $response['ListOrdersByNextTokenResult']['Orders']['Order'];
-
-            if (array_keys($response) !== range(0, count($response) - 1)) {
-                return [$response];
-            }
-            return $response;
-        } else {
-            return [];
-        }
+        return $response;
     }
 
     /**
@@ -554,19 +518,12 @@ class MWSClient
      */
     public function ListOrderItems($AmazonOrderId)
     {
-        $response = $this->request('ListOrderItems', [
+        $oldNextAuto = $this->getNextAuto;
+        $response = $this->asAStackOfNextResources()->request('ListOrderItems', [
             'AmazonOrderId' => $AmazonOrderId
         ]);
-
-        if (@$response['ListOrderItemsResult']['OrderItems']) {
-            $result = array_values($response['ListOrderItemsResult']['OrderItems']);
-        }
-
-        if (isset($result[0]['QuantityOrdered'])) {
-            return $result;
-        } else {
-            return @$result[0];
-        }
+        $this->getNextAuto = $oldNextAuto;
+        return $response;
     }
 
     /**
@@ -1310,15 +1267,23 @@ class MWSClient
     /**
      * Get a report's content
      * @param string $ReportId
+     * @param boolean $getRaw return plain csv data
      * @return array on succes
      */
-    public function GetReport($ReportId)
+    public function GetReport($ReportId, $getRaw = false)
     {
         $result = $this->request('GetReport', [
             'ReportId' => $ReportId
         ]);
 
+        if ($getRaw) {
+            return $result;
+        }
+
         if (is_string($result)) {
+            if (self::ORIGIN_ENCODING !== $this->targetEncoding) {
+                $result = iconv(self::ORIGIN_ENCODING, $this->targetEncoding, $result);
+            }
             $csv = Reader::createFromString($result);
             $csv->setDelimiter("\t");
             $headers = $csv->fetchOne();
@@ -1411,7 +1376,7 @@ class MWSClient
 
         $query = array_merge($query, $merge);
 
-        if (!isset($query['MarketplaceId.Id.1'])) {
+        if (!isset($query['MarketplaceId.Id.1']) && !@$query['NextToken']) {
             $query['MarketplaceId.Id.1'] = $this->config['Marketplace_Id'];
         }
 
@@ -1485,28 +1450,41 @@ class MWSClient
 
             $body = (string)$response->getBody();
 
-
             if ($raw) {
                 return $body;
             } else {
                 if (strpos(strtolower($response->getHeader('Content-Type')[0]), 'xml') !== false) {
                     $result = $this->xmlToArray($body);
-                    if ($this->getNextAuto && 'true' === @$result[$endPointName . 'Result']['HasNext']) {
-                        $this->commonResult = array_merge($this->commonResult,
-                            ($this->isAssoc($result[$endPointName . 'Result'][$endPoint['responseElement']]) ? [$result[$endPointName . 'Result'][$endPoint['responseElement']]] :
-                                $result[$endPointName . 'Result'][$endPoint['responseElement']]));
-                        $query['NextToken'] = $result[$endPointName . 'Result']['NextToken'];
-                        if (!strpos($endPointName, 'ByNextToken')) {
-                            $endPointName .= 'ByNextToken';
+
+                    if ($this->getNextAuto) {
+                        $addToStack = [];
+                        if (@$endPoint['responseParentElement']) {
+                            if (@$result[$endPointName . 'Result'][$endPoint['responseParentElement']]) {
+                                $addToStack = $result[$endPointName . 'Result'][$endPoint['responseParentElement']][$endPoint['responseElement']];
+                            }
+                        } else {
+                            $addToStack = $result[$endPointName . 'Result'][$endPoint['responseElement']];
                         }
-                        return $this->request($endPointName, $query);
+
+                        $this->nextStack = array_merge($this->nextStack,
+                            ($this->isAssoc($addToStack) ? [$addToStack] : $addToStack));
+
+                        if (@$result[$endPointName . 'Result']['NextToken']) {
+
+                            $query = [];
+                            $query['NextToken'] = $result[$endPointName . 'Result']['NextToken'];
+                            if (!strpos($endPointName, 'ByNextToken')) {
+                                $endPointName .= 'ByNextToken';
+                            }
+                            return $this->request($endPointName, $query);
+                        }
                     }
-                    if ($this->commonResult && 'false' === $result[$endPointName . 'Result']['HasNext']) {
-                        $result['commonResult'] = $this->commonResult;
-                        $this->commonResult = [];
+                    if ($this->nextStack) {
+                        $commonResult = $this->nextStack;
+                        $this->nextStack = [];
+                        return $commonResult;
                     }
                     return $result;
-
                 } else {
                     return $body;
                 }

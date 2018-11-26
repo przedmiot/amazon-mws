@@ -100,13 +100,16 @@ class MWSEndPoint
             'action' => 'ListOrders',
             'path' => '/Orders/2013-09-01',
             'date' => '2013-09-01',
-            'responseElement' => 'Orders'
+            'responseParentElement' => 'Orders',
+            'responseElement' => 'Order'
         ],
         'ListOrderItems' => [
             'method' => 'POST',
             'action' => 'ListOrderItems',
             'path' => '/Orders/2013-09-01',
-            'date' => '2013-09-01'
+            'date' => '2013-09-01',
+            'responseParentElement' => 'OrderItems',
+            'responseElement' => 'OrderItem'
         ],
         'GetOrder' => [
             'method' => 'POST',

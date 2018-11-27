@@ -628,6 +628,8 @@ class MWSClient
 
         $replace['ns2:'] = '';
 
+        dump($response);
+
         $response = $this->xmlToArray(strtr($response, $replace));
 
         if (isset($response['GetMatchingProductForIdResult']['@attributes'])) {
@@ -1219,6 +1221,7 @@ class MWSClient
      */
     private function xmlToArray($xmlstring)
     {
+
         return json_decode(json_encode(simplexml_load_string($xmlstring)), true);
     }
 

@@ -566,11 +566,16 @@ class MWSClient
 
     public function GetMatchingProductForIdNoLimits(array $idsArr, $type = 'ASIN')
     {
-        $answer = $idsArrTmp = [];
+        $answer = ['found' => [], 'not_found' => []];
+        $idsArrTmp = [];
         while ($idsArr) {
             $idsArrTmp[] = array_shift($idsArr);
             if (count($idsArrTmp) === 5 || !count($idsArr)) {
-                $answer = array_merge_recursive($answer, $this->GetMatchingProductForId($idsArrTmp, $type));
+                $response = $this->GetMatchingProductForId($idsArrTmp, $type);
+                foreach ($response['found'] as $id => $foundProdArr) {
+                    $answer['found'][$id] = $foundProdArr;
+                }
+                $answer['not_found'] = array_merge($answer['not_found'], $response['not_found']);
                 $idsArrTmp = [];
             }
         }
@@ -602,7 +607,7 @@ class MWSClient
             $counter++;
         }
 
-        $response = $this->request(
+        $responseXML = $this->request(
             'GetMatchingProductForId',
             $array,
             null,
@@ -628,34 +633,36 @@ class MWSClient
 
         $replace['ns2:'] = '';
 
-        dump($response);
+        $responseXML = strtr($responseXML, $replace);
 
-        $response = $this->xmlToArray(strtr($response, $replace));
+        $xmlAsObject = simplexml_load_string($responseXML);
 
-        if (isset($response['GetMatchingProductForIdResult']['@attributes'])) {
-            $response['GetMatchingProductForIdResult'] = [
-                0 => $response['GetMatchingProductForIdResult']
+        $xmlAsArray = $this->xmlToArray($xmlAsObject);
+
+        if (isset($xmlAsArray['GetMatchingProductForIdResult']['@attributes'])) {
+            $xmlAsArray['GetMatchingProductForIdResult'] = [
+                0 => $xmlAsArray['GetMatchingProductForIdResult']
             ];
         }
 
         $found = [];
         $not_found = [];
 
-        if (isset($response['GetMatchingProductForIdResult']) && is_array($response['GetMatchingProductForIdResult'])) {
-            foreach ($response['GetMatchingProductForIdResult'] as $result) {
-
-                //print_r($result);exit;
-
+        if (isset($xmlAsArray['GetMatchingProductForIdResult']) && is_array($xmlAsArray['GetMatchingProductForIdResult'])) {
+            foreach ($xmlAsArray['GetMatchingProductForIdResult'] as $resultIndex => $result) {
+                $products = $productsAsObjArr = [];
                 $asin = $result['@attributes']['Id'];
                 if ($result['@attributes']['status'] != 'Success') {
                     $not_found[] = $asin;
                 } else {
                     if (isset($result['Products']['Product']['AttributeSets'])) {
                         $products[0] = $result['Products']['Product'];
+                        $productsAsObjArr[0] = $xmlAsObject->GetMatchingProductForIdResult[$resultIndex]->Products->Product;
                     } else {
                         $products = $result['Products']['Product'];
+                        $productsAsObjArr = $xmlAsObject->GetMatchingProductForIdResult[$resultIndex]->Products->Product;
                     }
-                    foreach ($products as $product) {
+                    foreach ($products as $productIndex => $product) {
                         $array = [];
                         if (isset($product['Identifiers']['MarketplaceASIN']['ASIN'])) {
                             $array["ASIN"] = $product['Identifiers']['MarketplaceASIN']['ASIN'];
@@ -672,10 +679,13 @@ class MWSClient
                         }
 
                         if (isset($product['AttributeSets']['ItemAttributes']['PackageDimensions'])) {
-                            $array['PackageDimensions'] = array_map(
-                                'floatval',
-                                $product['AttributeSets']['ItemAttributes']['PackageDimensions']
-                            );
+                            foreach ($product['AttributeSets']['ItemAttributes']['PackageDimensions'] as $dimensionName => $dimensionValue) {
+                                $dimensionSimpleXmlElement = $productsAsObjArr[$productIndex]->AttributeSets->ItemAttributes->PackageDimensions->$dimensionName;
+                                $array['PackageDimensions'][$dimensionName] = [
+                                    'unit' => (string)$dimensionSimpleXmlElement->attributes()->Units,
+                                    'value' => (string)$dimensionSimpleXmlElement
+                                ];
+                            }
                         }
 
                         if (isset($product['AttributeSets']['ItemAttributes']['ListPrice'])) {
@@ -1022,7 +1032,6 @@ class MWSClient
         if (in_array($codeLength, [8, 13, 14, 18])) {
             return 'EAN';
         }
-
         return false;
     }
 
@@ -1219,10 +1228,12 @@ class MWSClient
      * @param string $xmlstring
      * @return array
      */
-    private function xmlToArray($xmlstring)
+    private function xmlToArray($xml)
     {
-
-        return json_decode(json_encode(simplexml_load_string($xmlstring)), true);
+        if (!$xml instanceof \SimpleXMLElement) {
+            $xml = simplexml_load_string($xml);
+        }
+        return json_decode(json_encode($xml), true);
     }
 
     /**
@@ -1451,23 +1462,25 @@ class MWSClient
             );
 
 
+
             $body = (string)$response->getBody();
+
 
             if ($raw) {
                 return $body;
             } else {
                 if (strpos(strtolower($response->getHeader('Content-Type')[0]), 'xml') !== false) {
                     $result = $this->xmlToArray($body);
-
                     if ($this->getNextAuto) {
                         $addToStack = [];
                         if (@$endPoint['responseParentElement']) {
-                            if (@$result[$endPointName . 'Result'][$endPoint['responseParentElement']]) {
+                            if ($result[$endPointName . 'Result'][$endPoint['responseParentElement']]) {
                                 $addToStack = $result[$endPointName . 'Result'][$endPoint['responseParentElement']][$endPoint['responseElement']];
                             }
                         } else {
                             $addToStack = $result[$endPointName . 'Result'][$endPoint['responseElement']];
                         }
+                        
 
                         $this->nextStack = array_merge($this->nextStack,
                             ($this->isAssoc($addToStack) ? [$addToStack] : $addToStack));
@@ -1481,8 +1494,7 @@ class MWSClient
                             }
                             return $this->request($endPointName, $query);
                         }
-                    }
-                    if ($this->nextStack) {
+
                         $commonResult = $this->nextStack;
                         $this->nextStack = [];
                         return $commonResult;

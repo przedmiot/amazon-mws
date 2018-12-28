@@ -439,6 +439,7 @@ class MWSClient
      * @param array $states , an array containing orders states you want to filter on
      * @param string $FulfillmentChannel
      * @param object DateTime $till, end of time frame
+     * @param $dateParam string @see http://docs.developer.amazonservices.com/en_UK/orders-2013-09-01/Orders_ListOrders.html
      * @return array
      */
     public function ListOrders(
@@ -449,14 +450,15 @@ class MWSClient
             'PartiallyShipped'
         ],
         $FulfillmentChannels = 'MFN',
-        DateTime $till = null
+        DateTime $till = null,
+        $dateParam = 'LastUpdated'
     ) {
         $query = [
-            'CreatedAfter' => gmdate(self::DATE_FORMAT, $from->getTimestamp())
+            $dateParam . 'After' => gmdate(self::DATE_FORMAT, $from->getTimestamp())
         ];
 
         if ($till !== null) {
-            $query['CreatedBefore'] = gmdate(self::DATE_FORMAT, $till->getTimestamp());
+            $query[$dateParam . 'Before'] = gmdate(self::DATE_FORMAT, $till->getTimestamp());
         }
 
         $counter = 1;
@@ -1462,7 +1464,6 @@ class MWSClient
             );
 
 
-
             $body = (string)$response->getBody();
 
 
@@ -1480,7 +1481,7 @@ class MWSClient
                         } else {
                             $addToStack = $result[$endPointName . 'Result'][$endPoint['responseElement']];
                         }
-                        
+
 
                         $this->nextStack = array_merge($this->nextStack,
                             ($this->isAssoc($addToStack) ? [$addToStack] : $addToStack));
@@ -1529,4 +1530,15 @@ class MWSClient
     {
         $this->client = $client;
     }
+
+    public static function getMarketplacesRegion($marketplaceId)
+    {
+        foreach (self::$regions as $regionName => $marketplacesArr) {
+            if (in_array($marketplaceId, $marketplacesArr)) {
+                return $regionName;
+            }
+        }
+        throw new \Exception('Region not found for a given marketplace id!');
+    }
+
 }

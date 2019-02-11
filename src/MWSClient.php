@@ -4,10 +4,21 @@ namespace MCS;
 
 use DateTime;
 use Exception;
-use DateTimeZone;
-use MCS\MWSEndPoint;
 use League\Csv\Reader;
 use League\Csv\Writer;
+use MCS\Exception\HTTP\BadRequest;
+use MCS\Exception\HTTP\Forbidden;
+use MCS\Exception\HTTP\NotFound;
+use MCS\Exception\HTTP\ServiceUnavailable;
+use MCS\Exception\MWSCommon\AccessDenied;
+use MCS\Exception\MWSCommon\InputStreamDisconnected;
+use MCS\Exception\MWSCommon\InternalError;
+use MCS\Exception\MWSCommon\InvalidAccessKeyId;
+use MCS\Exception\MWSCommon\InvalidAddress;
+use MCS\Exception\MWSCommon\InvalidParameterValue;
+use MCS\Exception\MWSCommon\QuotaExceeded;
+use MCS\Exception\MWSCommon\RequestThrottled;
+use MCS\Exception\MWSCommon\SignatureDoesNotMatch;
 use SplTempFileObject;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\BadResponseException;
@@ -1506,18 +1517,54 @@ class MWSClient
                 }
             }
 
-        } catch (BadResponseException $e) {
+        } catch (BadResponseException $e) {//Lets try to pick something more specific.
             if ($e->hasResponse()) {
-                $message = $e->getResponse();
-                $message = $message->getBody();
+                $response = $e->getResponse();
+                $message = $response->getBody();
+
                 if (strpos($message, '<ErrorResponse') !== false) {
                     $error = simplexml_load_string($message);
-                    $message = $error->Error->Message;
+                    $amazonMessage = $error->Error->Message;
+                    $amazonCode = $error->Error->Code;
                 }
-            } else {
-                $message = 'An error occured';
+
+                if (400 == $response->getStatusCode()) {
+                    if ('InputStreamDisconnected' == $amazonCode) {
+                        throw new InputStreamDisconnected($amazonMessage, $e->getRequest(), $response);
+                    }
+                    if ('InvalidParameterValue' == $amazonCode) {
+                        throw new InvalidParameterValue($amazonMessage, $e->getRequest(), $response);
+                    }
+                    throw new BadRequest($amazonMessage, $e->getRequest(), $response);
+                } elseif (401 == $response->getStatusCode()) {
+                    throw new AccessDenied($amazonMessage, $e->getRequest(), $response);
+                } elseif (403 == $response->getStatusCode()) {
+                    if ('InvalidAccessKeyId' == $amazonCode) {
+                        throw new InvalidAccessKeyId($amazonMessage, $e->getRequest(), $response);
+                    }
+                    if ('SignatureDoesNotMatch' == $amazonCode) {
+                        throw new SignatureDoesNotMatch($amazonMessage, $e->getRequest(), $response);
+                    }
+                    throw new Forbidden($amazonMessage, $e->getRequest(), $response);
+                } elseif (404 == $response->getStatusCode()) {
+                    if ('InvalidAddress' == $amazonCode) {
+                        throw new InvalidAddress($amazonMessage, $e->getRequest(), $response);
+                    }
+                    throw new NotFound($amazonMessage, $e->getRequest(), $response);
+                } elseif (500 == $response->getStatusCode()) {
+                    throw new InternalError($amazonMessage, $e->getRequest(), $response);
+                } elseif (503 == $response->getStatusCode()) {
+                    if ('QuotaExceeded' == $amazonCode) {
+                        throw new QuotaExceeded($amazonMessage, $e->getRequest(), $response);
+                    }
+                    if ('RequestThrottled' == $amazonCode) {
+                        throw new RequestThrottled($amazonMessage, $e->getRequest(), $response);
+                    }
+                    throw new ServiceUnavailable($amazonMessage, $e->getRequest(), $response);
+                }
             }
-            throw new Exception($message);
+            //Re-throw an Guzzle`s exception in case above procedure fails.
+            throw new $e;
         }
     }
 

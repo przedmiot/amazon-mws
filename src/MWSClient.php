@@ -158,9 +158,10 @@ class MWSClient
 
     /**
      * A method to quickly check if the supplied credentials are valid
+     * @param $rethrowException boolean
      * @return boolean
      */
-    public function validateCredentials()
+    public function validateCredentials($rethrowException = false)
     {
         try {
             $this->ListOrderItems('validate');
@@ -168,6 +169,9 @@ class MWSClient
             if ($e->getMessage() == 'Invalid AmazonOrderId: validate') {
                 return true;
             } else {
+                if ($rethrowException) {
+                    throw $e;
+                }
                 return false;
             }
         }

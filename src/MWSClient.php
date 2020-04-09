@@ -164,9 +164,10 @@ class MWSClient
     public function validateCredentials($rethrowException = false)
     {
         try {
-            $this->ListOrderItems('validate');
+            $fakeId = 'just validating credentials';
+            $this->GetFeedSubmissionResult($fakeId);
         } catch (Exception $e) {
-            if ($e->getMessage() == 'Invalid AmazonOrderId: validate') {
+            if (preg_match('@'.$fakeId.'@', $e->getMessage())) {
                 return true;
             } else {
                 if ($rethrowException) {
@@ -468,6 +469,7 @@ class MWSClient
         DateTime $till = null,
         $dateParam = 'LastUpdated'
     ) {
+
         $query = [
             $dateParam . 'After' => gmdate(self::DATE_FORMAT, $from->getTimestamp())
         ];

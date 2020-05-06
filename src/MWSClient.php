@@ -50,6 +50,7 @@ class MWSClient
     const MARKETPLACE_FRANCE = 'A13V1IB3VIYZZH';
     const MARKETPLACE_GERMANY = 'A1PA6795UKMFR9';
     const MARKETPLACE_ITALY = 'APJ6JRA9NG5V4';
+    const MARKETPLACE_NETHERLANDS = 'A1805IZSGTT6HS';
     const MARKETPLACE_BRAZIL = 'A2Q3Y263D00KWC';
     const MARKETPLACE_INDIA = 'A21TJRUUN4KGV';
     const MARKETPLACE_CHINA = 'AAHKV2X7AFYLW';
@@ -67,6 +68,7 @@ class MWSClient
         self::MARKETPLACE_GERMANY => 'mws-eu.amazonservices.com',
         self::MARKETPLACE_SPAIN => 'mws-eu.amazonservices.com',
         self::MARKETPLACE_FRANCE => 'mws-eu.amazonservices.com',
+        self::MARKETPLACE_NETHERLANDS => 'mws-eu.amazonservices.com',
         self::MARKETPLACE_INDIA => 'mws.amazonservices.in',
         self::MARKETPLACE_ITALY => 'mws-eu.amazonservices.com',
         self::MARKETPLACE_UK => 'mws-eu.amazonservices.com',
@@ -85,7 +87,8 @@ class MWSClient
             self::MARKETPLACE_SPAIN,
             self::MARKETPLACE_FRANCE,
             self::MARKETPLACE_ITALY,
-            self::MARKETPLACE_UK
+            self::MARKETPLACE_UK,
+            self::MARKETPLACE_NETHERLANDS
         ],
         'India' => [self::MARKETPLACE_INDIA],
         'China' => [self::MARKETPLACE_CHINA],

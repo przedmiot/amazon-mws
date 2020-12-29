@@ -1540,7 +1540,7 @@ class MWSClient
                     return $result;
                 } else {
                     return $body;
-                }                                                                                                             Z
+                }                                                                                                             
             }
 
         } catch (BadResponseException $e) {//Lets try to pick something more specific.

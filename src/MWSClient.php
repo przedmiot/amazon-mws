@@ -10,6 +10,7 @@ use MCS\Exception\HTTP\BadRequest;
 use MCS\Exception\HTTP\Forbidden;
 use MCS\Exception\HTTP\NotFound;
 use MCS\Exception\HTTP\ServiceUnavailable;
+use MCS\Exception\MWSClientException;
 use MCS\Exception\MWSCommon\AccessDenied;
 use MCS\Exception\MWSCommon\InputStreamDisconnected;
 use MCS\Exception\MWSCommon\InternalError;
@@ -1265,12 +1266,21 @@ class MWSClient
      * @param EndDate [$EndDate = null]
      * @return array Request report info
      */
-    public function RequestReport($report, $StartDate = null, $EndDate = null)
+    public function RequestReport($report, $marketplacesList = [], $StartDate = null, $EndDate = null, array $reportOptions = [])
     {
-        $query = [
-            'MarketplaceIdList.Id.1' => $this->config['Marketplace_Id'],
-            'ReportType' => $report
-        ];
+        if ($marketplacesList) {
+            if ($unknownIds = array_diff($marketplacesList, array_keys(self::$MarketplaceIds))) {
+                throw new MWSClientException(__(sprintf('Unknown marketplace ids: %s', join(', ',$unknownIds))));
+            }
+            $i = 1;
+            foreach ($marketplacesList as $id) {
+                $query['MarketplaceIdList.Id.'.$i++] = $id;
+            }
+        } else {
+            $query['MarketplaceIdList.Id.1'] = $this->config['Marketplace_Id'];
+        }
+
+        $query['ReportType'] = $report;
 
         if (!is_null($StartDate)) {
             if (!is_a($StartDate, 'DateTime')) {
@@ -1286,6 +1296,14 @@ class MWSClient
             } else {
                 $query['EndDate'] = gmdate(self::DATE_FORMAT, $EndDate->getTimestamp());
             }
+        }
+
+        if ($reportOptions) {
+            $preparedOptions = [];
+            foreach ($reportOptions as $name => $value) {
+                $preparedOptions[] = "$name=$value";
+            }
+            $query['ReportOptions'] = join(';', $preparedOptions);
         }
 
         $result = $this->request(
@@ -1492,6 +1510,7 @@ class MWSClient
             } else {
                 if (strpos(strtolower($response->getHeader('Content-Type')[0]), 'xml') !== false) {
                     $result = $this->xmlToArray($body);
+
                     if ($this->getNextAuto) {
                         $addToStack = [];
                         if (@$endPoint['responseParentElement']) {
@@ -1501,13 +1520,11 @@ class MWSClient
                         } else {
                             $addToStack = $result[$endPointName . 'Result'][$endPoint['responseElement']];
                         }
-
-
+                        
                         $this->nextStack = array_merge($this->nextStack,
                             ($this->isAssoc($addToStack) ? [$addToStack] : $addToStack));
 
                         if (@$result[$endPointName . 'Result']['NextToken']) {
-
                             $query = [];
                             $query['NextToken'] = $result[$endPointName . 'Result']['NextToken'];
                             if (!strpos($endPointName, 'ByNextToken')) {
@@ -1523,13 +1540,16 @@ class MWSClient
                     return $result;
                 } else {
                     return $body;
-                }
+                }                                                                                                             Z
             }
 
         } catch (BadResponseException $e) {//Lets try to pick something more specific.
             if ($e->hasResponse()) {
                 $response = $e->getResponse();
                 $message = $response->getBody();
+
+                $amazonMessage = 'no Amazon message';
+                $amazonCode = 'no Amazon code';
 
                 if (strpos($message, '<ErrorResponse') !== false) {
                     $error = simplexml_load_string($message);

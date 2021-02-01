@@ -111,7 +111,7 @@ class MWSEndPoint
             'date' => '2013-09-01',
             'responseParentElement' => 'OrderItems',
             'responseElement' => 'OrderItem',
-            'restoreRate' => '2'
+            'restoreRate' => '5' //2 is not enough (one Amazon knows why)
         ],
         'GetOrder' => [
             'method' => 'POST',

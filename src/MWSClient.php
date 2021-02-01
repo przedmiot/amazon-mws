@@ -36,6 +36,8 @@ class MWSClient
     public $targetEncoding = 'UTF-8';
     const ORIGIN_ENCODING = 'ISO-8859-1';
 
+    const TRIES_LIMIT = 3;
+
     public $config = [
         'Seller_Id' => null,
         'Marketplace_Id' => null,
@@ -1416,7 +1418,7 @@ class MWSClient
     /**
      * Request MWS
      */
-    private function request($endPointName, array $query = [], $body = null, $raw = false)
+    private function request($endPointName, array $query = [], $body = null, $raw = false, $try = 1)
     {
 
         $endPoint = MWSEndPoint::get($endPointName);
@@ -1590,6 +1592,15 @@ class MWSClient
                         throw new QuotaExceeded($amazonMessage, $e->getRequest(), $response);
                     }
                     if ('RequestThrottled' == $amazonCode) {
+                        if (isset($endPoint['restoreRate'])) {
+                            if ($try <= self::TRIES_LIMIT) {
+                                sleep($endPoint['restoreRate']);
+                                return $this->request($endPointName, $query, $body, $raw, ++$try);
+                            } else {
+                                throw new RequestThrottled(sprintf('%s - tries limit of %s exceeded', $amazonMessage, self::TRIES_LIMIT), $e->getRequest(), $response);
+                            }
+                        }
+
                         throw new RequestThrottled($amazonMessage, $e->getRequest(), $response);
                     }
                     throw new ServiceUnavailable($amazonMessage, $e->getRequest(), $response);

@@ -101,7 +101,8 @@ class MWSEndPoint
             'path' => '/Orders/2013-09-01',
             'date' => '2013-09-01',
             'responseParentElement' => 'Orders',
-            'responseElement' => 'Order'
+            'responseElement' => 'Order',
+            'restoreRate' => '60'
         ],
         'ListOrderItems' => [
             'method' => 'POST',
@@ -109,7 +110,8 @@ class MWSEndPoint
             'path' => '/Orders/2013-09-01',
             'date' => '2013-09-01',
             'responseParentElement' => 'OrderItems',
-            'responseElement' => 'OrderItem'
+            'responseElement' => 'OrderItem',
+            'restoreRate' => '2'
         ],
         'GetOrder' => [
             'method' => 'POST',

@@ -61,7 +61,8 @@ class MWSEndPoint
             'action' => 'GetFeedSubmissionList',
             'path' => '/',
             'date' => '2009-01-01',
-            'responseElement' => 'FeedSubmissionInfo'
+            'responseElement' => 'FeedSubmissionInfo',
+            'restoreRate' => '45' //@todo but there is also a limit per hour
         ],
         'GetReportList' => [
             'method' => 'POST',

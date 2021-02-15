@@ -130,7 +130,8 @@ class MWSEndPoint
             'method' => 'POST',
             'action' => 'GetMatchingProductForId',
             'path' => '/Products/2011-10-01',
-            'date' => '2011-10-01'
+            'date' => '2011-10-01',
+            'restoreRate' => '2'
         ],
 
         'ListMatchingProducts' => [

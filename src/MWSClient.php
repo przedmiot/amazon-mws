@@ -4,6 +4,7 @@ namespace MCS;
 
 use DateTime;
 use Exception;
+use ForceUTF8\Encoding;
 use League\Csv\Reader;
 use League\Csv\Writer;
 use MCS\Exception\HTTP\BadRequest;
@@ -1340,9 +1341,12 @@ class MWSClient
         }
 
         if (is_string($result)) {
-            if (self::ORIGIN_ENCODING !== $this->targetEncoding) {
-                $result = iconv(self::ORIGIN_ENCODING, $this->targetEncoding, $result);
-            }
+            /**
+             * regarding to https://docs.developer.amazonservices.com/en_IT/dev_guide/DG_ISO8859.html:
+             * "The safe practice is to conform to ISO 8859-1 when using Amazon MWS."
+             * Encoding::toUTF8 converts characters from ISO 8859-1 better than iconv (there were some issues in different versions)
+             */
+            $result = Encoding::toUTF8($result);
             $csv = Reader::createFromString($result);
             $csv->setDelimiter("\t");
             $headers = $csv->fetchOne();
@@ -1420,7 +1424,6 @@ class MWSClient
      */
     private function request($endPointName, array $query = [], $body = null, $raw = false, $try = 1)
     {
-
         $endPoint = MWSEndPoint::get($endPointName);
 
         $merge = [
@@ -1452,7 +1455,6 @@ class MWSClient
         }
 
         try {
-
             $headers = [
                 'Accept' => 'application/xml',
                 'x-amazon-user-agent' => $this->config['Application_Name'] . '/' . $this->config['Application_Version']

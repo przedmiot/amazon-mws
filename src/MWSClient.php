@@ -5,6 +5,8 @@ namespace MCS;
 use DateTime;
 use Exception;
 use ForceUTF8\Encoding;
+use GuzzleHttp\Psr7\Request;
+use Itl\ShoperAppStoreFoundation\Misc\ShopValve;
 use League\Csv\Reader;
 use League\Csv\Writer;
 use MCS\Exception\HTTP\BadRequest;
@@ -38,6 +40,12 @@ class MWSClient
     const ORIGIN_ENCODING = 'ISO-8859-1';
 
     const TRIES_LIMIT = 3;
+
+    /**
+     * @var ShopValve
+     */
+    protected $shopValve;
+
 
     public $config = [
         'Seller_Id' => null,
@@ -1454,68 +1462,69 @@ class MWSClient
             unset($query['MarketplaceId.Id.1']);
         }
 
-        try {
-            $headers = [
-                'Accept' => 'application/xml',
-                'x-amazon-user-agent' => $this->config['Application_Name'] . '/' . $this->config['Application_Version']
-            ];
+        try { 
+           // throw new AccessDenied('test', new Request('GET', 'https://dupa.pl'));
+            try {
+                $headers = [
+                    'Accept' => 'application/xml',
+                    'x-amazon-user-agent' => $this->config['Application_Name'] . '/' . $this->config['Application_Version']
+                ];
 
-            if ($endPoint['action'] === 'SubmitFeed') {
-                $headers['Content-MD5'] = base64_encode(md5($body, true));
-                $headers['Content-Type'] = 'text/xml; charset=iso-8859-1';
-                $headers['Host'] = $this->config['Region_Host'];
+                if ($endPoint['action'] === 'SubmitFeed') {
+                    $headers['Content-MD5'] = base64_encode(md5($body, true));
+                    $headers['Content-Type'] = 'text/xml; charset=iso-8859-1';
+                    $headers['Host'] = $this->config['Region_Host'];
 
-                unset(
-                    $query['MarketplaceId.Id.1'],
-                    $query['SellerId']
+                    unset(
+                        $query['MarketplaceId.Id.1'],
+                        $query['SellerId']
+                    );
+                }
+
+                $requestOptions = [
+                    'headers' => $headers,
+                    'body' => $body
+                ];
+
+                ksort($query);
+
+                if (isset($query['Signature'])) {
+                    unset($query['Signature']);
+                }
+                $query['Signature'] = base64_encode(
+                    hash_hmac(
+                        'sha256',
+                        $endPoint['method']
+                        . "\n"
+                        . $this->config['Region_Host']
+                        . "\n"
+                        . $endPoint['path']
+                        . "\n"
+                        . http_build_query($query, null, '&', PHP_QUERY_RFC3986),
+                        $this->config['Secret_Access_Key'],
+                        true
+                    )
                 );
-            }
 
-            $requestOptions = [
-                'headers' => $headers,
-                'body' => $body
-            ];
+                $requestOptions['query'] = $query;
 
-            ksort($query);
+                if ($this->client === null) {
+                    $this->client = new Client();
+                }
 
-            if (isset($query['Signature'])) {
-                unset($query['Signature']);
-            }
-            $query['Signature'] = base64_encode(
-                hash_hmac(
-                    'sha256',
-                    $endPoint['method']
-                    . "\n"
-                    . $this->config['Region_Host']
-                    . "\n"
-                    . $endPoint['path']
-                    . "\n"
-                    . http_build_query($query, null, '&', PHP_QUERY_RFC3986),
-                    $this->config['Secret_Access_Key'],
-                    true
-                )
-            );
-
-            $requestOptions['query'] = $query;
-
-            if ($this->client === null) {
-                $this->client = new Client();
-            }
-
-            $response = $this->client->request(
-                $endPoint['method'],
-                $this->config['Region_Url'] . $endPoint['path'],
-                $requestOptions
-            );
+                $response = $this->client->request(
+                    $endPoint['method'],
+                    $this->config['Region_Url'] . $endPoint['path'],
+                    $requestOptions
+                );
 
 
-            $body = (string)$response->getBody();
+                $body = (string)$response->getBody();
 
 
-            if ($raw) {
-                return $body;
-            } else {
-                if (strpos(strtolower($response->getHeader('Content-Type')[0]), 'xml') !== false) {
+                if ($raw || strpos(strtolower($response->getHeader('Content-Type')[0]), 'xml') === false) {
+                    $response = $body;
+                } else {
                     $result = $this->xmlToArray($body);
 
                     if ($this->getNextAuto) {
@@ -1527,7 +1536,7 @@ class MWSClient
                         } else {
                             $addToStack = $result[$endPointName . 'Result'][$endPoint['responseElement']];
                         }
-                        
+
                         $this->nextStack = array_merge($this->nextStack,
                             ($this->isAssoc($addToStack) ? [$addToStack] : $addToStack));
 
@@ -1537,79 +1546,88 @@ class MWSClient
                             if (!strpos($endPointName, 'ByNextToken')) {
                                 $endPointName .= 'ByNextToken';
                             }
-                            return $this->request($endPointName, $query);
+                            $response = $this->request($endPointName, $query);
+                        } else {
+                            $commonResult = $this->nextStack;
+                            $this->nextStack = [];
+                            $response = $commonResult;
                         }
-
-                        $commonResult = $this->nextStack;
-                        $this->nextStack = [];
-                        return $commonResult;
+                    } else {
+                        $response = $result;
                     }
-                    return $result;
-                } else {
-                    return $body;
-                }                                                                                                             
-            }
-
-        } catch (BadResponseException $e) {//Lets try to pick something more specific.
-            if ($e->hasResponse()) {
-                $response = $e->getResponse();
-                $message = $response->getBody();
-
-                $amazonMessage = 'no Amazon message';
-                $amazonCode = 'no Amazon code';
-
-                if (strpos($message, '<ErrorResponse') !== false) {
-                    $error = simplexml_load_string($message);
-                    $amazonMessage = $error->Error->Message;
-                    $amazonCode = $error->Error->Code;
                 }
 
-                if (400 == $response->getStatusCode()) {
-                    if ('InputStreamDisconnected' == $amazonCode) {
-                        throw new InputStreamDisconnected($amazonMessage, $e->getRequest(), $response);
+                if ($this->shopValve) {
+                    $this->shopValve->reset();
+                }
+
+                return $response;
+            } catch (BadResponseException $e) {//Lets try to pick something more specific.
+                if ($e->hasResponse()) {
+                    $response = $e->getResponse();
+                    $message = $response->getBody();
+
+                    $amazonMessage = 'no Amazon message';
+                    $amazonCode = 'no Amazon code';
+
+                    if (strpos($message, '<ErrorResponse') !== false) {
+                        $error = simplexml_load_string($message);
+                        $amazonMessage = $error->Error->Message;
+                        $amazonCode = $error->Error->Code;
                     }
-                    if ('InvalidParameterValue' == $amazonCode) {
-                        throw new InvalidParameterValue($amazonMessage, $e->getRequest(), $response);
-                    }
-                    throw new BadRequest($amazonMessage, $e->getRequest(), $response);
-                } elseif (401 == $response->getStatusCode()) {
-                    throw new AccessDenied($amazonMessage, $e->getRequest(), $response);
-                } elseif (403 == $response->getStatusCode()) {
-                    if ('InvalidAccessKeyId' == $amazonCode) {
-                        throw new InvalidAccessKeyId($amazonMessage, $e->getRequest(), $response);
-                    }
-                    if ('SignatureDoesNotMatch' == $amazonCode) {
-                        throw new SignatureDoesNotMatch($amazonMessage, $e->getRequest(), $response);
-                    }
-                    throw new Forbidden($amazonMessage, $e->getRequest(), $response);
-                } elseif (404 == $response->getStatusCode()) {
-                    if ('InvalidAddress' == $amazonCode) {
-                        throw new InvalidAddress($amazonMessage, $e->getRequest(), $response);
-                    }
-                    throw new NotFound($amazonMessage, $e->getRequest(), $response);
-                } elseif (500 == $response->getStatusCode()) {
-                    throw new InternalError($amazonMessage, $e->getRequest(), $response);
-                } elseif (503 == $response->getStatusCode()) {
-                    if ('QuotaExceeded' == $amazonCode) {
-                        throw new QuotaExceeded($amazonMessage, $e->getRequest(), $response);
-                    }
-                    if ('RequestThrottled' == $amazonCode) {
-                        if (isset($endPoint['restoreRate'])) {
-                            if ($try <= self::TRIES_LIMIT) {
-                                sleep($endPoint['restoreRate']);
-                                return $this->request($endPointName, $query, $body, $raw, ++$try);
-                            } else {
-                                throw new RequestThrottled(sprintf('%s - tries limit of %s exceeded', $amazonMessage, self::TRIES_LIMIT), $e->getRequest(), $response);
+
+                    if (400 == $response->getStatusCode()) {
+                        if ('InputStreamDisconnected' == $amazonCode) {
+                            throw new InputStreamDisconnected($amazonMessage, $e->getRequest(), $response);
+                        }
+                        if ('InvalidParameterValue' == $amazonCode) {
+                            throw new InvalidParameterValue($amazonMessage, $e->getRequest(), $response);
+                        }
+                        throw new BadRequest($amazonMessage, $e->getRequest(), $response);
+                    } elseif (401 == $response->getStatusCode()) {
+                        throw new AccessDenied($amazonMessage, $e->getRequest(), $response);
+                    } elseif (403 == $response->getStatusCode()) {
+                        if ('InvalidAccessKeyId' == $amazonCode) {
+                            throw new InvalidAccessKeyId($amazonMessage, $e->getRequest(), $response);
+                        }
+                        if ('SignatureDoesNotMatch' == $amazonCode) {
+                            throw new SignatureDoesNotMatch($amazonMessage, $e->getRequest(), $response);
+                        }
+                        throw new Forbidden($amazonMessage, $e->getRequest(), $response);
+                    } elseif (404 == $response->getStatusCode()) {
+                        if ('InvalidAddress' == $amazonCode) {
+                            throw new InvalidAddress($amazonMessage, $e->getRequest(), $response);
+                        }
+                        throw new NotFound($amazonMessage, $e->getRequest(), $response);
+                    } elseif (500 == $response->getStatusCode()) {
+                        throw new InternalError($amazonMessage, $e->getRequest(), $response);
+                    } elseif (503 == $response->getStatusCode()) {
+                        if ('QuotaExceeded' == $amazonCode) {
+                            throw new QuotaExceeded($amazonMessage, $e->getRequest(), $response);
+                        }
+                        if ('RequestThrottled' == $amazonCode) {
+                            if (isset($endPoint['restoreRate'])) {
+                                if ($try <= self::TRIES_LIMIT) {
+                                    sleep($endPoint['restoreRate']);
+                                    return $this->request($endPointName, $query, $body, $raw, ++$try);
+                                } else {
+                                    throw new RequestThrottled(sprintf('%s - tries limit of %s exceeded', $amazonMessage, self::TRIES_LIMIT), $e->getRequest(), $response);
+                                }
                             }
-                        }
 
-                        throw new RequestThrottled($amazonMessage, $e->getRequest(), $response);
+                            throw new RequestThrottled($amazonMessage, $e->getRequest(), $response);
+                        }
+                        throw new ServiceUnavailable($amazonMessage, $e->getRequest(), $response);
                     }
-                    throw new ServiceUnavailable($amazonMessage, $e->getRequest(), $response);
                 }
+                //Re-throw an Guzzle`s exception in case above procedure fails.
+                throw new $e;
             }
-            //Re-throw an Guzzle`s exception in case above procedure fails.
-            throw new $e;
+        } catch (BadResponseException $e) {
+            if ($this->shopValve) {
+                $this->shopValve->considerException($e);
+            }
+            throw $e;
         }
     }
 
@@ -1633,4 +1651,13 @@ class MWSClient
         throw new \Exception('Region not found for a given marketplace id!');
     }
 
+    /**
+     * A valve is an object responsible for disabling an integration in response of too many exceptions
+     *
+     * @param ShopValve $valve
+     */
+    public function setValve(ShopValve $valve)
+    {
+        $this->shopValve = $valve;
+    }
 }

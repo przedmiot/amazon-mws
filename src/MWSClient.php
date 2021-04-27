@@ -7,6 +7,7 @@ use Exception;
 use ForceUTF8\Encoding;
 use GuzzleHttp\Psr7\Request;
 use Itl\ShoperAppStoreFoundation\Misc\ShopValve;
+use Itl\ShoperAppStoreFoundation\Misc\ShopValveAware;
 use League\Csv\Reader;
 use League\Csv\Writer;
 use MCS\Exception\HTTP\BadRequest;
@@ -28,7 +29,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\BadResponseException;
 use Spatie\ArrayToXml\ArrayToXml;
 
-class MWSClient
+class MWSClient implements ShopValveAware
 {
 
     const SIGNATURE_METHOD = 'HmacSHA256';
@@ -1463,7 +1464,7 @@ class MWSClient
         }
 
         try { 
-           // throw new AccessDenied('test', new Request('GET', 'https://dupa.pl'));
+            //throw new AccessDenied('test', new Request('GET', 'https://dupa.pl'));
             try {
                 $headers = [
                     'Accept' => 'application/xml',

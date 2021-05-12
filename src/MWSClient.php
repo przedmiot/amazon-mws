@@ -186,7 +186,7 @@ class MWSClient implements ShopValveAware
             $fakeId = 'just validating credentials';
             $this->GetFeedSubmissionResult($fakeId);
         } catch (Exception $e) {
-            if (preg_match('@'.$fakeId.'@', $e->getMessage())) {
+            if (preg_match('@' . $fakeId . '@', $e->getMessage())) {
                 return true;
             } else {
                 if ($rethrowException) {
@@ -487,7 +487,8 @@ class MWSClient implements ShopValveAware
         $FulfillmentChannels = 'MFN',
         DateTime $till = null,
         $dateParam = 'LastUpdated'
-    ) {
+    )
+    {
 
         $query = [
             $dateParam . 'After' => gmdate(self::DATE_FORMAT, $from->getTimestamp())
@@ -1076,7 +1077,7 @@ class MWSClient implements ShopValveAware
 
     /**
      * Post to create or update a product (_POST_FLAT_FILE_LISTINGS_DATA_)
-     * @param  object $MWSProduct or array of MWSProduct objects
+     * @param object $MWSProduct or array of MWSProduct objects
      * @return array
      */
     public function postProduct($MWSProduct, array $feedOptions = [])
@@ -1285,11 +1286,11 @@ class MWSClient implements ShopValveAware
     {
         if ($marketplacesList) {
             if ($unknownIds = array_diff($marketplacesList, array_keys(self::$MarketplaceIds))) {
-                throw new MWSClientException(__(sprintf('Unknown marketplace ids: %s', join(', ',$unknownIds))));
+                throw new MWSClientException(__(sprintf('Unknown marketplace ids: %s', join(', ', $unknownIds))));
             }
             $i = 1;
             foreach ($marketplacesList as $id) {
-                $query['MarketplaceIdList.Id.'.$i++] = $id;
+                $query['MarketplaceIdList.Id.' . $i++] = $id;
             }
         } else {
             $query['MarketplaceIdList.Id.1'] = $this->config['Marketplace_Id'];
@@ -1339,7 +1340,7 @@ class MWSClient implements ShopValveAware
      * @param boolean $getRaw return plain csv data
      * @return array on succes
      */
-    public function GetReport($ReportId, $getRaw = false)
+    public function GetReport($ReportId, $getRaw = false, $translationsFileName = null)
     {
         $result = $this->request('GetReport', [
             'ReportId' => $ReportId
@@ -1359,6 +1360,9 @@ class MWSClient implements ShopValveAware
             $csv = Reader::createFromString($result);
             $csv->setDelimiter("\t");
             $headers = $csv->fetchOne();
+            if ($translationsFileName) {
+                $headers = $this->normalizeHeaders($headers, $this->loadTransaltions($translationsFileName));
+            }
             $result = [];
             foreach ($csv->setOffset(1)->fetchAll() as $row) {
                 $result[] = array_combine($headers, $row);
@@ -1367,6 +1371,34 @@ class MWSClient implements ShopValveAware
 
         return $result;
     }
+
+    protected function loadTransaltions($translationsFileName)
+    {
+        return include(__DIR__ . '/../l10n/' . $translationsFileName);
+    }
+
+
+    /**
+     * Names of columns are sometimes localized. Client of this client prefers rather to have them inmutable.
+     *
+     * @param array $headers localized headers
+     * @return array translated ones
+     */
+    protected function normalizeHeaders(array $headers, array $columnNamesMap)
+    {
+        foreach ($headers as &$header) {
+            foreach ($columnNamesMap as $target => $localized) {
+                if (in_array($header, (array)$localized)) {
+                    $header = $target;
+                    continue 2;
+                }
+            }
+        }
+        unset ($header);
+
+        return $headers;
+    }
+
 
     /**
      * Get a report's processing status
@@ -1463,7 +1495,7 @@ class MWSClient implements ShopValveAware
             unset($query['MarketplaceId.Id.1']);
         }
 
-        try { 
+        try {
             //throw new AccessDenied('test', new Request('GET', 'https://dupa.pl'));
             try {
                 $headers = [
